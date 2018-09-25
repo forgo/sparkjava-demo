@@ -1,0 +1,16 @@
+build:
+  version: 1.0
+  date: 2018-09-22
+
+server:
+  port: 5678
+  threadPool:
+    maxThreads: 8
+    minThreads: 2
+    timeOutMillis: 30000
+  security:
+    keystoreAlias:
+    keystoreFile: keystore.jks
+    keystorePassword: password
+    truststoreFile:
+    truststorePassword:

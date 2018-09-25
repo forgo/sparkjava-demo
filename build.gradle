@@ -1,0 +1,144 @@
+plugins {
+    // https://plugins.gradle.org/plugin/io.forgo.keystoreplugin
+    id "io.forgo.keystoreplugin" version "1.0"
+}
+
+group 'io.forgo.spark'
+version '1.0-SNAPSHOT'
+
+// adds Java compilation along with testing and bundling capabilities
+// -> https://docs.gradle.org/current/userguide/java_plugin.html
+apply plugin: 'java'
+
+// facilitates creating an executable JVM application
+// -> https://docs.gradle.org/current/userguide/application_plugin.html
+apply plugin: 'application'
+
+sourceCompatibility = 1.8
+mainClassName = "io.forgo.spark.demo.DemoApplication"
+
+defaultTasks 'run'
+
+ext {
+    // dependency versioning
+    sparkJavaVersion = '2.7.2'
+    sparkPac4jVersion = '2.3.0'
+    sparkTemplateVelocityVersion = '2.7.1'
+    junitVersion = '4.12'
+    logbackVersion = '1.2.1'
+    snakeYmlVersion = '1.23'
+
+    // keystore file
+    keystoreOutputDir = ".keystore"
+    keystoreFile = "keystore.jks"
+    keystorePassword = "password"
+    keystoreAlias = "jetty"
+
+    // build and environment-specific parameters
+    def DEBUG_LOCAL = Boolean.valueOf(System.getProperty("debug.local"))
+    buildDate = "${new Date().format("YYYY-MM-dd", TimeZone.getTimeZone('UTC'))}"
+    port = DEBUG_LOCAL ? '4567' : '7713'
+
+    // for docker images, the keystore file path is /etc/keystore.jks
+    // for local debug, we point to keystore.jks generated in our gradle root
+    // to enable local debug, pass `-Ddebug.local=true` to `gradle run`
+    def buildDir = new File(".").absolutePath
+    keystoreFileLocalPath = "${keystoreOutputDir}/${keystoreFile}"
+    keystoreFileDockerPath = "/etc/${keystoreFile}"
+    keystoreFileResolved = DEBUG_LOCAL ? "${keystoreFileLocalPath}" : "${keystoreFileDockerPath}"
+}
+
+// keystore plugin readme:
+// https://github.com/forgo/keystore-gradle-plugin/blob/master/README.md
+keystore {
+    outputDir = "${project.keystoreOutputDir}"
+
+    keyFile = "debug.key"
+    keyPassword = "${project.keystorePassword}"
+
+    certFile = "debug.crt"
+
+    pkcs12File = "keystore.pkcs12"
+    pkcs12Password = "${project.keystorePassword}"
+
+    jksFile = "${project.keystoreFile}"
+    jksPassword = "${project.keystorePassword}"
+    alias = "${project.keystoreAlias}"
+}
+
+// generate fresh keystore for builds
+build.dependsOn(jks)
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile group: 'com.sparkjava', name: 'spark-core', version: "${project.sparkJavaVersion}"
+    compile group: 'org.pac4j', name: 'spark-pac4j', version: "${project.sparkPac4jVersion}"
+    compile group: 'com.sparkjava', name: 'spark-template-velocity', version: "${project.sparkTemplateVelocityVersion}"
+    compile group: 'ch.qos.logback', name: 'logback-classic', version: "${project.logbackVersion}"
+    compile group: 'org.yaml', name: 'snakeyaml', version: "${snakeYmlVersion}"
+
+    testCompile group: 'junit', name: 'junit', version: "${project.junitVersion}"
+}
+
+// copies resources from source to target, potentially processing them
+processResources {
+    // pre-process variables inside config.yml from build properties
+    outputs.upToDateWhen { false }
+    filesMatching("**/config.yml") {
+        expand( project.properties )
+    }
+}
+
+// create a fat executable jar
+jar {
+    manifest {
+        attributes "Main-Class": "$mainClassName"
+    }
+    from {
+        configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    archiveName "app.jar"
+}
+
+task runJar(type: JavaExec, dependsOn: jar) {
+    main = "-jar"
+    args jar.archivePath
+}
+
+task buildDocker(dependsOn: build) {
+    doLast {
+        exec {
+            ignoreExitValue = true
+            workingDir '.'
+            executable = 'docker'
+            args = [
+                'build',
+                '--build-arg', "PORT=${project.port}",
+                '--build-arg', "KEYSTORE_SRC=${project.keystoreFileLocalPath}",
+                '--build-arg', "KEYSTORE_DST=${project.keystoreFileDockerPath}",
+                '-t', "${project.name}:${version}",
+                '.'
+            ]
+        }
+    }
+}
+
+task runDocker(dependsOn: buildDocker) {
+    doLast {
+        exec {
+            ignoreExitValue = true
+            workingDir '.'
+            executable = 'docker'
+            args = [
+                'run',
+                '--rm',
+                '--name', "${project.name}",
+                '-p', "${project.port}:${project.port}",
+                "${project.name}:${version}"
+            ]
+        }
+    }
+}

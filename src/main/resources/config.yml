@@ -1,0 +1,16 @@
+build:
+  version: ${version}
+  date: ${buildDate}
+
+server:
+  port: ${port}
+  threadPool:
+    maxThreads: 8
+    minThreads: 2
+    timeOutMillis: 30000
+  security:
+    keystoreAlias:
+    keystoreFile: ${keystoreFileResolved}
+    keystorePassword: ${keystorePassword}
+    truststoreFile:
+    truststorePassword:
